@@ -11,7 +11,7 @@ import (
 
 // LoadFile loads a json or jsonnet file and returns the content as a byte slice.
 // In case it is a jsonnet file, it evaluates the jsonnet file and returns the resulting json as a byte slice.
-func LoadFile(path string) ([]byte, error) {
+func LoadFile(path string, opts ...LoadOption) ([]byte, error) {
 	file, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

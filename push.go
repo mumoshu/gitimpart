@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -25,6 +26,8 @@ type PushConfig struct {
 	Body string
 	// SendPullRequest is a flag to send a pull request after the commit-push.
 	SendPullRequest bool
+	// KustomizeBin is the path to the kustomize binary.
+	KustomizeBin string
 }
 
 type PushOptions func(*PushConfig)
@@ -41,6 +44,12 @@ func WithGitHubToken(token string) PushOptions {
 func WithPullRequest() PushOptions {
 	return func(c *PushConfig) {
 		c.SendPullRequest = true
+	}
+}
+
+func WithKustomizeBin(bin string) PushOptions {
+	return func(c *PushConfig) {
+		c.KustomizeBin = bin
 	}
 }
 
@@ -141,6 +150,66 @@ func Push(r Contents, repo, branch string, opts ...PushOptions) error {
 			}
 
 			updates = append(updates, name)
+		}
+
+		var kustomizeBinAbs string
+
+		for kDir, files := range r.Kustomize {
+			if kustomizeBinAbs == "" {
+				kustomizeBin := "kustomize"
+				if c.KustomizeBin != "" {
+					kustomizeBin = c.KustomizeBin
+				}
+				kustomizeBin, err := filepath.Abs(kustomizeBin)
+				if err != nil {
+					return nil, fmt.Errorf("unable to get absolute path to kustomize binary %s: %w", kustomizeBin, err)
+				}
+				kustomizeBinAbs, err = exec.LookPath(kustomizeBin)
+				if err != nil {
+					return nil, fmt.Errorf("unable to find kustomize binary: %w", err)
+				}
+			}
+
+			thisDir := filepath.Join(dir, kDir)
+
+			// Executes kustomize edit add resource for each file in files and adds the kustomization.yaml as updated
+			// file.
+			for name := range files {
+				// Create the directory that should contain the kustomization.yaml file,
+				// if it does not exist.
+				if stat, err := os.Stat(thisDir); err != nil {
+					if os.IsNotExist(err) {
+						if err := os.MkdirAll(thisDir, 0755); err != nil {
+							return nil, fmt.Errorf("mkdir error: %w", err)
+						}
+					} else {
+						return nil, fmt.Errorf("stat error: %w", err)
+					}
+				} else if !stat.IsDir() {
+					return nil, fmt.Errorf("not a directory: %s", thisDir)
+				}
+
+				// Create the kustomization.yaml file, if it does not exist.
+				// Otherwise kustomize-edit-add-resource fails with:
+				//   Error: Missing kustomization file 'kustomization.yaml'.
+				if _, err := os.Stat(filepath.Join(thisDir, "kustomization.yaml")); err != nil {
+					if os.IsNotExist(err) {
+						if err := os.WriteFile(filepath.Join(thisDir, "kustomization.yaml"), []byte("resources:\n"), 0644); err != nil {
+							return nil, fmt.Errorf("write error: %w", err)
+						}
+					} else {
+						return nil, fmt.Errorf("stat error: %w", err)
+					}
+				}
+
+				kustomizeEdit := exec.Command(kustomizeBinAbs, "edit", "add", "resource", name)
+				kustomizeEdit.Dir = thisDir
+				combined, err := kustomizeEdit.CombinedOutput()
+				if err != nil {
+					return nil, fmt.Errorf("kustomize edit error: %w, %s", err, combined)
+				}
+			}
+			updates = append(updates, filepath.Join(kDir, "kustomization.yaml"))
 		}
 
 		return &store.RenderResult{
