@@ -32,6 +32,15 @@ func LoadFile(path string, opts ...LoadOption) ([]byte, error) {
 			}
 		}
 
+		var cfg LoadConfig
+		for _, opt := range opts {
+			opt(&cfg)
+		}
+
+		for k, v := range cfg.Vars {
+			vm.ExtVar(k, v)
+		}
+
 		json, err := vm.EvaluateAnonymousSnippet(path, string(file))
 		if err != nil {
 			return nil, err
