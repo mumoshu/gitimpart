@@ -65,6 +65,9 @@ type Git struct {
 
 	// Push specifies whether the gitops config is updated via git push.
 	Push bool
+
+	// DryRun instructs the git store to print the changes that would be made without actually making them.
+	DryRun bool
 }
 
 func NewGit(auth transport.AuthMethod, baseBranch, newBranch, gitRepoURL, authorUserName, authorEmail, gitRoot string, push bool) *Git {
@@ -179,6 +182,11 @@ func (g *Git) Commit(ctx context.Context, subject, body string) error {
 		return fmt.Errorf("unable to commit: %w", err)
 	}
 
+	baseHash, err := g.repository.Reference(g.BaseRefName, true)
+	if err != nil {
+		return fmt.Errorf("unable to get reference %v: %w", g.BaseRefName, err)
+	}
+
 	ref := plumbing.NewReferenceFromStrings(string(g.BaseRefName), hash.String())
 	if err := g.repository.Storer.SetReference(ref); err != nil {
 		return fmt.Errorf("unable to set reference %v: %w", ref, err)
@@ -187,6 +195,24 @@ func (g *Git) Commit(ctx context.Context, subject, body string) error {
 	remote, err := g.repository.Remote("origin")
 	if err != nil {
 		return fmt.Errorf("unable to get remote origin: %w", err)
+	}
+
+	if g.DryRun {
+		baseCommit, err := g.repository.CommitObject(baseHash.Hash())
+		if err != nil {
+			return fmt.Errorf("unable to get commit: %w", err)
+		}
+		headCommit, err := g.repository.CommitObject(hash)
+		if err != nil {
+			return fmt.Errorf("unable to get commit: %w", err)
+		}
+		patch, err := baseCommit.Patch(headCommit)
+		if err != nil {
+			return fmt.Errorf("unable to get patch: %w", err)
+		}
+
+		fmt.Println(patch.String())
+		return nil
 	}
 
 	if !g.Push {

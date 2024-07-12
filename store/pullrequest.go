@@ -12,6 +12,8 @@ import (
 type PullRequest struct {
 	RepositoryURL string
 	Git           *Git
+	// DryRun is a flag to print the changes that would be made without actually making them.
+	DryRun bool
 }
 
 func (c *PullRequest) Transact(fn func(path string) (*RenderResult, error)) (*RenderResult, error) {
@@ -54,12 +56,19 @@ func (c *PullRequest) createPullRequest(ctx context.Context, subject, body strin
 		repo = repo[:len(repo)-len(".git")]
 	}
 
-	_, _, err := client.PullRequests.Create(ctx, owner, repo, &github.NewPullRequest{
+	newPR := &github.NewPullRequest{
 		Title: github.String(subject),
 		Head:  github.String(string(*c.Git.NewRefName)),
 		Base:  github.String(string(c.Git.BaseRefName)),
 		Body:  github.String(body),
-	})
+	}
+
+	if c.DryRun {
+		fmt.Printf("Dry-run: Would create a pull request with the following title and body:\n\n%s\n\n%s\n", subject, body)
+		return nil
+	}
+
+	_, _, err := client.PullRequests.Create(ctx, owner, repo, newPR)
 	if err != nil {
 		return err
 	}

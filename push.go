@@ -24,6 +24,8 @@ type PushConfig struct {
 	Subject string
 	// Body is the commit message body.
 	Body string
+	// DryRun is a flag to print the changes that would be made without actually making them.
+	DryRun bool
 	// SendPullRequest is a flag to send a pull request after the commit-push.
 	SendPullRequest bool
 	// KustomizeBin is the path to the kustomize binary.
@@ -38,6 +40,12 @@ func WithGitHubToken(token string) PushOptions {
 			Username: "gitimpartbot",
 			Password: token,
 		}
+	}
+}
+
+func WithDryRun() PushOptions {
+	return func(c *PushConfig) {
+		c.DryRun = true
 	}
 }
 
@@ -103,11 +111,13 @@ func Push(r Contents, repo, branch string, opts ...PushOptions) error {
 		gitRoot,
 		true,
 	)
+	g.DryRun = c.DryRun
 
 	if c.SendPullRequest {
 		s = &store.PullRequest{
 			RepositoryURL: repo,
 			Git:           g,
+			DryRun:        c.DryRun,
 		}
 	} else {
 		s = g
